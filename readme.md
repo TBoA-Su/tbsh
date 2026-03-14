@@ -31,6 +31,8 @@ tbsh/
 | `SHELL_PROMPT`                | "> "   | shell 提示符    |
 | `SHELL_BANNER()`              | "TBoA" | shell banner |
 | `SHELL_TAB_COMPLETION_ENABLE` | 1      | Tab 补全       |
+| `SHELL_HISTORY_ENABLE`        | 1      | 历史记录         |
+| `SHELL_HISTORY_SIZE`          | 8      | 历史记录条数       |
 
 ## 内置命令
 
@@ -175,6 +177,7 @@ int main(void) {
 | 按键          | 功能          |
 |:------------|:------------|
 | `Tab`       | 命令补全 / 显示候选 |
+| `↑` / `↓`   | 浏览历史记录      |
 | `Ctrl+C`    | 取消当前输入      |
 | `Ctrl+U`    | 清除整行        |
 | `Backspace` | 删除字符        |
@@ -185,5 +188,6 @@ MIT License
 
 ## 版本历史
 
+- **v0.1.2** - 添加历史记录
 - **v0.1.1** - 添加 Tab 补全
 - **v0.1.0** - 初始版本

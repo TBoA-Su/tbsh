@@ -22,7 +22,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define SHELL_VERSION_STR "tbsh v0.1.1"
+#define SHELL_VERSION_STR "tbsh v0.1.2"
 
 /* ============================================================
  * 字符串工具（零依赖实现）
@@ -118,6 +118,14 @@ typedef struct {
     uint8_t tab_count;
     char last_prefix[SHELL_CMD_BUF_SIZE];
 #endif
+
+#if SHELL_HISTORY_ENABLE
+    /* 历史记录 */
+    char history[SHELL_HISTORY_SIZE][SHELL_CMD_BUF_SIZE];
+    uint8_t history_count;
+    uint8_t history_pos;
+    uint8_t history_browse;
+#endif
 } shell_context_t;
 
 static shell_context_t shell_ctx;
@@ -172,6 +180,31 @@ void shell_show_unknown_cmd(const char *cmd) {
     shell_println(cmd);
 }
 
+/* 光标控制（内部使用）*/
+static void shell_cursor_left(uint8_t n) {
+    while (n--) {
+        shell_putchar('\x1B');
+        shell_putchar('[');
+        shell_putchar('D');
+    }
+}
+
+static void shell_cursor_right(uint8_t n) {
+    while (n--) {
+        shell_putchar('\x1B');
+        shell_putchar('[');
+        shell_putchar('C');
+    }
+}
+
+static void shell_cursor_move(const int16_t n) {
+    if (n > 0 && n <= 255) {
+        shell_cursor_right((uint8_t) n);
+    } else if (n < 0 && n >= -255) {
+        shell_cursor_left((uint8_t) (-n));
+    }
+}
+
 static void shell_clear_line(void) {
     shell_putchar('\x1B');
     shell_putchar('[');
@@ -187,6 +220,7 @@ static void shell_clear_line(void) {
 /* 解析命令行到 argc/argv */
 static void shell_parse_line(char *line) {
     shell_ctx.argc = 0;
+    shell_memset(shell_ctx.argv, 0, sizeof(shell_ctx.argv));
     char *p = line;
 
     while (*p && shell_ctx.argc < SHELL_ARGC_MAX) {
@@ -363,15 +397,79 @@ static void shell_tab_reset(void) {
 #endif /* SHELL_TAB_COMPLETION_ENABLE */
 
 /* ============================================================
+ * 历史记录功能
+ * ============================================================ */
+
+#if SHELL_HISTORY_ENABLE
+
+static void shell_history_add(const char *line, uint8_t len) {
+    if (!line || len == 0) {
+        return;
+    }
+    if (len >= SHELL_CMD_BUF_SIZE) {
+        len = SHELL_CMD_BUF_SIZE - 1;
+    }
+    /* 检查是否与上一条重复 */
+    if (shell_ctx.history_count > 0 &&
+        shell_strncmp(shell_ctx.history[0], line, SHELL_CMD_BUF_SIZE) == 0) {
+        return;
+    }
+
+    /* 移动历史记录 */
+    for (int j = SHELL_HISTORY_SIZE - 1; j > 0; j--) {
+        shell_memcpy(shell_ctx.history[j], shell_ctx.history[j - 1], SHELL_CMD_BUF_SIZE);
+    }
+
+    /* 保存新记录 */
+    shell_memcpy(shell_ctx.history[0], line, len);
+    shell_ctx.history[0][len] = '\0';
+
+    if (shell_ctx.history_count < SHELL_HISTORY_SIZE) {
+        shell_ctx.history_count++;
+    }
+}
+
+static const char *shell_history_up(void) {
+    if (shell_ctx.history_count == 0)
+        return NULL;
+
+    if (!shell_ctx.history_browse) {
+        shell_ctx.history_browse = 1;
+        shell_ctx.history_pos = 0;
+    } else if (shell_ctx.history_pos < shell_ctx.history_count - 1) {
+        shell_ctx.history_pos++;
+    }
+
+    return shell_ctx.history[shell_ctx.history_pos];
+}
+
+static const char *shell_history_down(void) {
+    if (!shell_ctx.history_browse)
+        return NULL;
+
+    if (shell_ctx.history_pos > 0) {
+        shell_ctx.history_pos--;
+        return shell_ctx.history[shell_ctx.history_pos];
+    }
+
+    /* 退出浏览模式 */
+    shell_ctx.history_browse = 0;
+    shell_ctx.history_pos = 0;
+    return NULL;
+}
+
+static void shell_history_reset_browse(void) {
+    shell_ctx.history_pos = 0;
+    shell_ctx.history_browse = 0;
+}
+
+#endif /* SHELL_HISTORY_ENABLE */
+
+/* ============================================================
  * 键盘输入处理
  * ============================================================ */
 
 static void shell_key_char(char c) {
-#if SHELL_TAB_COMPLETION_ENABLE
-    /* 重置 Tab 状态 */
-    shell_tab_reset();
-#endif
-
     if (shell_ctx.pos >= SHELL_CMD_BUF_SIZE - 1) return;
 
     /* 末尾追加 */
@@ -382,9 +480,38 @@ static void shell_key_char(char c) {
 }
 
 static void shell_key_up_arrow(void) {
+#if SHELL_HISTORY_ENABLE
+    const char *hist = shell_history_up();
+    if (hist) {
+        shell_cursor_move((int16_t) -((int16_t) shell_ctx.pos));
+        shell_clear_line();
+        shell_show_prompt();
+        shell_puts(hist);
+        shell_ctx.pos = (uint8_t) shell_strlen(hist);
+        shell_memset(shell_ctx.buf, 0, SHELL_CMD_BUF_SIZE);
+        shell_memcpy(shell_ctx.buf, hist, shell_ctx.pos);
+    }
+#endif
 }
 
 static void shell_key_down_arrow(void) {
+#if SHELL_HISTORY_ENABLE
+    /* 下箭头 */
+    const char *hist = shell_history_down();
+    shell_cursor_move((int16_t) -((int16_t) shell_ctx.pos));
+    shell_clear_line();
+    shell_show_prompt();
+
+    if (hist) {
+        shell_puts(hist);
+        shell_ctx.pos = (uint8_t) shell_strlen(hist);
+        shell_memset(shell_ctx.buf, 0, SHELL_CMD_BUF_SIZE);
+        shell_memcpy(shell_ctx.buf, hist, shell_ctx.pos);
+    } else {
+        shell_ctx.pos = 0;
+        shell_memset(shell_ctx.buf, 0, SHELL_CMD_BUF_SIZE);
+    }
+#endif
 }
 
 static void shell_key_right_arrow(void) {
@@ -414,15 +541,21 @@ static void shell_key_enter(void) {
     }
 
     shell_ctx.buf[shell_ctx.pos] = '\0';
+
+#if SHELL_HISTORY_ENABLE
+    /* 保存到历史记录 */
+    if (shell_ctx.pos > 0) {
+        shell_history_add(shell_ctx.buf, shell_ctx.pos);
+        shell_history_reset_browse();
+    }
+#endif
+
     shell_parse_line(shell_ctx.buf);
     shell_do_execute();
 
     /* 重置状态 */
     shell_ctx.pos = 0;
     shell_memset(shell_ctx.buf, 0, SHELL_CMD_BUF_SIZE);
-#if SHELL_TAB_COMPLETION_ENABLE
-    shell_tab_reset();
-#endif
     if (!shell_ctx.script_mode) {
         shell_show_prompt();
     }
@@ -534,6 +667,16 @@ void shell_task(void) {
 
     char c = shell_getchar();
 
+    if (c == '\t') {
+        /* Tab */
+        shell_key_tab();
+        return;
+    }
+
+#if SHELL_TAB_COMPLETION_ENABLE
+    shell_tab_reset();
+#endif
+
     /* 处理转义序列 */
     if (c == '\x1B') {
         if (!shell_kbhit())
@@ -586,9 +729,6 @@ void shell_task(void) {
     if (c == '\r' || c == '\n') {
         /* 回车执行 */
         shell_key_enter();
-    } else if (c == '\t') {
-        /* Tab */
-        shell_key_tab();
     } else if (c == '\b' || c == 0x7F) {
         /* 退格 */
         shell_key_backspace();

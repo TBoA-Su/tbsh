@@ -68,6 +68,17 @@ extern "C" {
 #define SHELL_TAB_COMPLETION_ENABLE 1 /* Tab 命令补全 */
 #endif
 
+#ifndef SHELL_HISTORY_ENABLE
+#define SHELL_HISTORY_ENABLE 1 /* 历史记录 */
+#endif
+
+/* 历史记录大小 */
+#if SHELL_HISTORY_ENABLE
+#ifndef SHELL_HISTORY_SIZE
+#define SHELL_HISTORY_SIZE 8
+#endif
+#endif
+
 /* ============================================================
  * 类型定义
  * ============================================================ */
