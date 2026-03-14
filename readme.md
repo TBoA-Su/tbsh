@@ -23,13 +23,14 @@ tbsh/
 
 在编译时通过宏定义配置：
 
-| 宏                    | 默认值    | 说明           |
-|:---------------------|:-------|:-------------|
-| `SHELL_CMD_BUF_SIZE` | 64     | 命令行最大长度      |
-| `SHELL_ARGC_MAX`     | 8      | 命令最大参数个数     |
-| `SHELL_CMD_MAX`      | 24     | 最大命令数        |
-| `SHELL_PROMPT`       | "> "   | shell 提示符    |
-| `SHELL_BANNER()`     | "TBoA" | shell banner |
+| 宏                             | 默认值    | 说明           |
+|:------------------------------|:-------|:-------------|
+| `SHELL_CMD_BUF_SIZE`          | 64     | 命令行最大长度      |
+| `SHELL_ARGC_MAX`              | 8      | 命令最大参数个数     |
+| `SHELL_CMD_MAX`               | 24     | 最大命令数        |
+| `SHELL_PROMPT`                | "> "   | shell 提示符    |
+| `SHELL_BANNER()`              | "TBoA" | shell banner |
+| `SHELL_TAB_COMPLETION_ENABLE` | 1      | Tab 补全       |
 
 ## 内置命令
 
@@ -171,11 +172,12 @@ int main(void) {
 
 ## 交互操作
 
-| 按键          | 功能     |
-|:------------|:-------|
-| `Ctrl+C`    | 取消当前输入 |
-| `Ctrl+U`    | 清除整行   |
-| `Backspace` | 删除字符   |
+| 按键          | 功能          |
+|:------------|:------------|
+| `Tab`       | 命令补全 / 显示候选 |
+| `Ctrl+C`    | 取消当前输入      |
+| `Ctrl+U`    | 清除整行        |
+| `Backspace` | 删除字符        |
 
 ## 许可证
 
@@ -183,4 +185,5 @@ MIT License
 
 ## 版本历史
 
+- **v0.1.1** - 添加 Tab 补全
 - **v0.1.0** - 初始版本

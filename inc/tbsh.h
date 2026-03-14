@@ -20,12 +20,11 @@
 #ifndef __TBSH_H__
 #define __TBSH_H__
 
-#include <stdint.h>
 #include <stdbool.h>
-#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
+
 
 
 #endif
@@ -62,6 +61,11 @@ extern "C" {
         shell_println("    \\ \\_\\ \\ \\_____\\\\/\\_____\\\\ \\_\\ \\_\\"); \
         shell_println("     \\/_/  \\/_____/ \\/_____/ \\/_/\\/_/");          \
     } while (0)
+#endif
+
+/* 功能开关 */
+#ifndef SHELL_TAB_COMPLETION_ENABLE
+#define SHELL_TAB_COMPLETION_ENABLE 1 /* Tab 命令补全 */
 #endif
 
 /* ============================================================

@@ -1,7 +1,7 @@
 /**
  * @file port_linux.c
  * @brief Linux 平台完整移植示例
- * @version 0.1.0
+ * @version 0.1.1
  */
 
 #include "tbsh.h"
@@ -11,10 +11,7 @@
 #include <unistd.h>
 #include <termios.h>
 #include <fcntl.h>
-#include <string.h>
 #include <sys/stat.h>
-#include <dirent.h>
-#include <libgen.h>
 #include <sys/types.h>
 #include <signal.h>
 

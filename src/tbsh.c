@@ -19,7 +19,10 @@
 
 #include "tbsh.h"
 
-#define SHELL_VERSION_STR "tbsh v0.1.0"
+#include <stdint.h>
+#include <stddef.h>
+
+#define SHELL_VERSION_STR "tbsh v0.1.1"
 
 /* ============================================================
  * 字符串工具（零依赖实现）
@@ -77,6 +80,18 @@ static void shell_memset(void *s, int c, size_t n) {
         *p++ = (unsigned char) c;
 }
 
+void *shell_memcpy(void *dst, const void *src, size_t n) {
+    unsigned char *d = dst;
+    const unsigned char *s = src;
+
+    // 逐字节拷贝（最简单可靠）
+    while (n--) {
+        *d++ = *s++;
+    }
+
+    return dst;
+}
+
 /* ============================================================
  * Shell 上下文
  * ============================================================ */
@@ -97,6 +112,12 @@ typedef struct {
     /* 状态标志 */
     bool echo_enabled;
     bool script_mode;
+
+#if SHELL_TAB_COMPLETION_ENABLE
+    /* Tab 补全状态 */
+    uint8_t tab_count;
+    char last_prefix[SHELL_CMD_BUF_SIZE];
+#endif
 } shell_context_t;
 
 static shell_context_t shell_ctx;
@@ -108,6 +129,26 @@ static shell_context_t shell_ctx;
 void shell_puts(const char *s) {
     while (*s)
         shell_putchar(*s++);
+}
+
+void shell_putint(int num) {
+    if (num < 0) {
+        shell_putchar('-');
+        num = -num;
+    }
+
+    // 计算最高位除数
+    int div = 1;
+    while (num / div >= 10) {
+        div *= 10;
+    }
+
+    // 从高位到低位逐个输出
+    while (div > 0) {
+        shell_putchar(num / div + '0');
+        num %= div;
+        div /= 10;
+    }
 }
 
 void shell_println(const char *s) {
@@ -183,10 +224,154 @@ static int shell_do_execute(void) {
 }
 
 /* ============================================================
+ * Tab 补全功能
+ * ============================================================ */
+
+#if SHELL_TAB_COMPLETION_ENABLE
+
+static const char *shell_find_match(const char *prefix, uint8_t index) {
+    uint8_t match_cnt = 0;
+    size_t prefix_len = (size_t) shell_strlen(prefix);
+
+    for (uint8_t i = 0; i < shell_ctx.cmd_count; i++) {
+        if (shell_strncmp(shell_ctx.cmds[i].name, prefix, prefix_len) == 0) {
+            if (match_cnt == index) {
+                return shell_ctx.cmds[i].name;
+            }
+            match_cnt++;
+        }
+    }
+    return NULL;
+}
+
+static uint8_t shell_count_matches(const char *prefix) {
+    uint8_t count = 0;
+    size_t prefix_len = (size_t) shell_strlen(prefix);
+
+    for (uint8_t i = 0; i < shell_ctx.cmd_count; i++) {
+        if (shell_strncmp(shell_ctx.cmds[i].name, prefix, prefix_len) == 0) {
+            count++;
+        }
+    }
+    return count;
+}
+
+static uint8_t shell_common_prefix_len(const char *prefix) {
+    size_t prefix_len = (size_t) shell_strlen(prefix);
+    uint8_t common_len = 0xFF;
+    int first = 1;
+    const char *first_match = NULL;
+
+    for (uint8_t i = 0; i < shell_ctx.cmd_count; i++) {
+        if (shell_strncmp(shell_ctx.cmds[i].name, prefix, prefix_len) == 0) {
+            if (first) {
+                first_match = shell_ctx.cmds[i].name;
+                first = 0;
+            } else {
+                size_t j = prefix_len;
+                while (first_match[j] && shell_ctx.cmds[i].name[j] &&
+                       (first_match[j] == shell_ctx.cmds[i].name[j])) {
+                    j++;
+                }
+                if ((uint8_t) j < common_len)
+                    common_len = (uint8_t) j;
+            }
+        }
+    }
+
+    return (common_len == 0xFF) ? 0 : (uint8_t) (common_len - prefix_len);
+}
+
+static void shell_do_tab_completion(void) {
+    char prefix[SHELL_CMD_BUF_SIZE];
+    shell_memcpy(prefix, shell_ctx.buf, shell_ctx.pos);
+    prefix[shell_ctx.pos] = '\0';
+
+    if (shell_strcmp(prefix, shell_ctx.last_prefix) != 0) {
+        shell_ctx.tab_count = 0;
+        shell_memset(shell_ctx.last_prefix, '\0', SHELL_CMD_BUF_SIZE);
+        shell_strcpy(shell_ctx.last_prefix, prefix);
+    }
+    shell_ctx.tab_count++;
+
+    uint8_t match_count = shell_count_matches(prefix);
+
+    if (match_count == 0) {
+        shell_putchar('\x07'); /* Bell */
+        return;
+    }
+
+    if (match_count == 1) {
+        /* 唯一匹配：直接补全 */
+        const char *match = shell_find_match(prefix, 0);
+        if (match) {
+            size_t match_len = (size_t) shell_strlen(match);
+            size_t prefix_len = (size_t) shell_strlen(prefix);
+
+            for (size_t i = prefix_len; i < match_len; i++) {
+                shell_putchar(match[i]);
+                shell_ctx.buf[shell_ctx.pos++] = match[i];
+            }
+            shell_putchar(' ');
+            shell_ctx.buf[shell_ctx.pos++] = ' ';
+            shell_ctx.tab_count = 0;
+            shell_memset(shell_ctx.last_prefix, '\0', SHELL_CMD_BUF_SIZE);
+        }
+    } else {
+        if (shell_ctx.tab_count == 1) {
+            /* 第一次 Tab：补全公共前缀 */
+            uint8_t common = shell_common_prefix_len(prefix);
+            if (common > 0) {
+                const char *first_match = shell_find_match(prefix, 0);
+                size_t prefix_len = (size_t) shell_strlen(prefix);
+                for (uint8_t i = 0; i < common; i++) {
+                    shell_putchar(first_match[prefix_len + i]);
+                    shell_ctx.buf[shell_ctx.pos++] = first_match[prefix_len + i];
+                }
+                shell_memset(shell_ctx.last_prefix, '\0', SHELL_CMD_BUF_SIZE);
+                shell_memcpy(shell_ctx.last_prefix, shell_ctx.buf, shell_ctx.pos);
+            } else {
+                shell_putchar('\x07'); /* Bell */
+            }
+        } else {
+            /* 第二次 Tab：显示所有匹配 */
+            shell_println("");
+            for (uint8_t i = 0; i < match_count && i < 8; i++) {
+                const char *match = shell_find_match(prefix, i);
+                if (match) {
+                    shell_puts("  ");
+                    shell_puts(match);
+                }
+            }
+            if (match_count > 8) {
+                shell_puts("  ... and ");
+                shell_putint(match_count - 8);
+                shell_puts(" more");
+            }
+            shell_println("");
+            shell_show_prompt();
+            shell_puts(prefix);
+        }
+    }
+}
+
+static void shell_tab_reset(void) {
+    shell_ctx.tab_count = 0;
+    shell_memset(shell_ctx.last_prefix, '\0', SHELL_CMD_BUF_SIZE);
+}
+
+#endif /* SHELL_TAB_COMPLETION_ENABLE */
+
+/* ============================================================
  * 键盘输入处理
  * ============================================================ */
 
 static void shell_key_char(char c) {
+#if SHELL_TAB_COMPLETION_ENABLE
+    /* 重置 Tab 状态 */
+    shell_tab_reset();
+#endif
+
     if (shell_ctx.pos >= SHELL_CMD_BUF_SIZE - 1) return;
 
     /* 末尾追加 */
@@ -235,12 +420,20 @@ static void shell_key_enter(void) {
     /* 重置状态 */
     shell_ctx.pos = 0;
     shell_memset(shell_ctx.buf, 0, SHELL_CMD_BUF_SIZE);
+#if SHELL_TAB_COMPLETION_ENABLE
+    shell_tab_reset();
+#endif
     if (!shell_ctx.script_mode) {
         shell_show_prompt();
     }
 }
 
 static void shell_key_tab(void) {
+#if SHELL_TAB_COMPLETION_ENABLE
+    shell_do_tab_completion();
+#else
+    shell_putchar('\t');
+#endif
 }
 
 static void shell_key_ctrl_c(void) {
