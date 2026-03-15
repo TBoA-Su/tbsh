@@ -22,7 +22,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define SHELL_VERSION_STR "tbsh v0.1.2"
+#define SHELL_VERSION_STR "tbsh v0.1.3"
 
 /* ============================================================
  * 字符串工具（零依赖实现）
@@ -125,6 +125,10 @@ typedef struct {
     uint8_t history_count;
     uint8_t history_pos;
     uint8_t history_browse;
+#endif
+
+#if SHELL_CURSOR_EDIT_ENABLE
+    uint8_t cursor_pos;
 #endif
 } shell_context_t;
 
@@ -348,6 +352,9 @@ static void shell_do_tab_completion(void) {
             }
             shell_putchar(' ');
             shell_ctx.buf[shell_ctx.pos++] = ' ';
+#if SHELL_CURSOR_EDIT_ENABLE
+            shell_ctx.cursor_pos = shell_ctx.pos; // 同步光标位置
+#endif
             shell_ctx.tab_count = 0;
             shell_memset(shell_ctx.last_prefix, '\0', SHELL_CMD_BUF_SIZE);
         }
@@ -362,6 +369,9 @@ static void shell_do_tab_completion(void) {
                     shell_putchar(first_match[prefix_len + i]);
                     shell_ctx.buf[shell_ctx.pos++] = first_match[prefix_len + i];
                 }
+#if SHELL_CURSOR_EDIT_ENABLE
+                shell_ctx.cursor_pos = shell_ctx.pos; // 同步光标位置
+#endif
                 shell_memset(shell_ctx.last_prefix, '\0', SHELL_CMD_BUF_SIZE);
                 shell_memcpy(shell_ctx.last_prefix, shell_ctx.buf, shell_ctx.pos);
             } else {
@@ -468,15 +478,56 @@ static void shell_history_reset_browse(void) {
 /* ============================================================
  * 键盘输入处理
  * ============================================================ */
+#if SHELL_CURSOR_EDIT_ENABLE
+
+static void shell_cursor_reset(void) {
+    if (shell_ctx.echo_enabled) {
+        shell_cursor_move((int16_t) ((int16_t) shell_ctx.pos - (int16_t) shell_ctx.cursor_pos));
+    }
+    shell_ctx.cursor_pos = shell_ctx.pos;
+}
+
+#endif
+
+
+/* ============================================================
+ * 键盘输入处理
+ * ============================================================ */
 
 static void shell_key_char(char c) {
     if (shell_ctx.pos >= SHELL_CMD_BUF_SIZE - 1) return;
 
-    /* 末尾追加 */
-    shell_ctx.buf[shell_ctx.pos] = c;
-    shell_ctx.pos++;
+#if SHELL_CURSOR_EDIT_ENABLE
+    /* 如果光标在末尾，直接追加 */
+    if (shell_ctx.cursor_pos == shell_ctx.pos) {
+#endif
+        /* 末尾追加 */
+        shell_ctx.buf[shell_ctx.pos] = c;
+        shell_ctx.pos++;
+#if SHELL_CURSOR_EDIT_ENABLE
+        shell_ctx.cursor_pos++;
+#endif
+        shell_putchar(c);
+#if SHELL_CURSOR_EDIT_ENABLE
+    } else {
+        /* 中间插入 */
+        uint8_t cp = shell_ctx.cursor_pos;
+        /* 后移字符 */
+        for (uint8_t i = shell_ctx.pos; i > cp; i--) {
+            shell_ctx.buf[i] = shell_ctx.buf[i - 1];
+        }
+        shell_ctx.buf[cp] = c;
+        shell_ctx.pos++;
+        shell_ctx.cursor_pos++;
 
-    shell_putchar(c);
+        /* 显示优化：输出新字符和后续，再移回光标 */
+        if (shell_ctx.echo_enabled) {
+            shell_putchar(c);
+            shell_puts(&shell_ctx.buf[cp + 1]);
+            shell_cursor_move((int16_t) ((int16_t) shell_ctx.cursor_pos - (int16_t) shell_ctx.pos));
+        }
+    }
+#endif
 }
 
 static void shell_key_up_arrow(void) {
@@ -488,6 +539,9 @@ static void shell_key_up_arrow(void) {
         shell_show_prompt();
         shell_puts(hist);
         shell_ctx.pos = (uint8_t) shell_strlen(hist);
+#if SHELL_CURSOR_EDIT_ENABLE
+        shell_ctx.cursor_pos = shell_ctx.pos;
+#endif
         shell_memset(shell_ctx.buf, 0, SHELL_CMD_BUF_SIZE);
         shell_memcpy(shell_ctx.buf, hist, shell_ctx.pos);
     }
@@ -496,7 +550,6 @@ static void shell_key_up_arrow(void) {
 
 static void shell_key_down_arrow(void) {
 #if SHELL_HISTORY_ENABLE
-    /* 下箭头 */
     const char *hist = shell_history_down();
     shell_cursor_move((int16_t) -((int16_t) shell_ctx.pos));
     shell_clear_line();
@@ -511,16 +564,62 @@ static void shell_key_down_arrow(void) {
         shell_ctx.pos = 0;
         shell_memset(shell_ctx.buf, 0, SHELL_CMD_BUF_SIZE);
     }
+#if SHELL_CURSOR_EDIT_ENABLE
+    shell_ctx.cursor_pos = shell_ctx.pos;
+#endif
 #endif
 }
 
 static void shell_key_right_arrow(void) {
+#if SHELL_CURSOR_EDIT_ENABLE
+    if (shell_ctx.cursor_pos < shell_ctx.pos) {
+        shell_ctx.cursor_pos++;
+        shell_cursor_move(1);
+    }
+#endif
 }
 
 static void shell_key_left_arrow(void) {
+#if SHELL_CURSOR_EDIT_ENABLE
+    if (shell_ctx.cursor_pos > 0) {
+        shell_ctx.cursor_pos--;
+        shell_cursor_move(-1);
+    }
+#endif
 }
 
 static void shell_key_backspace(void) {
+#if SHELL_CURSOR_EDIT_ENABLE
+    if (shell_ctx.cursor_pos == 0) return;
+
+    /* 获取删除位置（光标前一个字符）*/
+    shell_ctx.cursor_pos--;
+    uint8_t cp = shell_ctx.cursor_pos;
+
+    /* 字符前移：删除 cp 位置的字符 */
+    for (uint8_t i = cp; i < shell_ctx.pos - 1; i++) {
+        shell_ctx.buf[i] = shell_ctx.buf[i + 1];
+    }
+    shell_ctx.pos--;
+    shell_ctx.buf[shell_ctx.pos] = '\0';
+
+    if (shell_ctx.echo_enabled) {
+        /* 光标左移到删除位置（cp 原来是 cursor_pos-1，现在 cursor_pos 已经减了）*/
+        shell_cursor_move(-1);
+
+        /* 从删除位置开始打印后续字符 */
+        shell_puts(&shell_ctx.buf[cp]);
+
+        /* 清除行尾残留的一个字符（空格+退格）*/
+        shell_putchar(' ');
+        shell_putchar('\b');
+
+        /* 光标现在在行尾（pos 位置），需要移回 cp */
+        if (shell_ctx.pos > cp) {
+            shell_cursor_move((int16_t) ((int16_t) cp - (int16_t) shell_ctx.pos));
+        }
+    }
+#else
     if (shell_ctx.pos == 0) return;
 
     shell_ctx.pos--;
@@ -529,14 +628,45 @@ static void shell_key_backspace(void) {
         shell_putchar(' ');
         shell_putchar('\b');
     }
+#endif
 }
 
 static void shell_key_delete(void) {
+#if SHELL_CURSOR_EDIT_ENABLE
+    if (shell_ctx.cursor_pos >= shell_ctx.pos) return;
+
+    uint8_t cp = shell_ctx.cursor_pos;
+
+    /* 前移字符，删除当前光标位置的字符 */
+    for (uint8_t i = cp; i < shell_ctx.pos - 1; i++) {
+        shell_ctx.buf[i] = shell_ctx.buf[i + 1];
+    }
+    shell_ctx.pos--;
+    shell_ctx.buf[shell_ctx.pos] = '\0';
+
+    if (shell_ctx.echo_enabled) {
+        /* 光标已经在 cp，直接刷新从 cp 开始的显示 */
+        shell_puts(&shell_ctx.buf[cp]);
+
+        /* 清除行尾残留字符 */
+        shell_putchar(' ');
+        shell_putchar('\b');
+
+        /* 光标现在在行尾，需要移回 cp */
+        if (shell_ctx.pos > cp) {
+            shell_cursor_move((int16_t) ((int16_t) cp - (int16_t) shell_ctx.pos));
+        }
+    }
+#else
     shell_key_backspace();
+#endif
 }
 
 static void shell_key_enter(void) {
     if (shell_ctx.echo_enabled) {
+#if SHELL_CURSOR_EDIT_ENABLE
+        shell_cursor_reset();
+#endif
         shell_println("");
     }
 
@@ -554,6 +684,9 @@ static void shell_key_enter(void) {
     shell_do_execute();
 
     /* 重置状态 */
+#if SHELL_CURSOR_EDIT_ENABLE
+    shell_ctx.cursor_pos = 0;
+#endif
     shell_ctx.pos = 0;
     shell_memset(shell_ctx.buf, 0, SHELL_CMD_BUF_SIZE);
     if (!shell_ctx.script_mode) {
@@ -562,6 +695,9 @@ static void shell_key_enter(void) {
 }
 
 static void shell_key_tab(void) {
+#if SHELL_CURSOR_EDIT_ENABLE
+    shell_cursor_reset();
+#endif
 #if SHELL_TAB_COMPLETION_ENABLE
     shell_do_tab_completion();
 #else
@@ -570,6 +706,10 @@ static void shell_key_tab(void) {
 }
 
 static void shell_key_ctrl_c(void) {
+#if SHELL_CURSOR_EDIT_ENABLE
+    shell_cursor_reset();
+    shell_ctx.cursor_pos = 0; /* 重置光标 */
+#endif
     shell_ctx.pos = 0;
     shell_println("^C");
     shell_memset(shell_ctx.buf, 0, SHELL_CMD_BUF_SIZE);
@@ -577,6 +717,10 @@ static void shell_key_ctrl_c(void) {
 }
 
 static void shell_key_ctrl_u(void) {
+#if SHELL_CURSOR_EDIT_ENABLE
+    shell_cursor_reset();
+    shell_ctx.cursor_pos = 0; /* 重置光标 */
+#endif
     shell_ctx.pos = 0;
     shell_clear_line();
     shell_memset(shell_ctx.buf, 0, SHELL_CMD_BUF_SIZE);
@@ -643,7 +787,6 @@ int cmd_clear(int argc, char *argv[]) {
 void shell_init(void) {
     shell_memset(&shell_ctx, 0, sizeof(shell_ctx));
     shell_ctx.echo_enabled = true;
-    shell_ctx.pos = 0;
 
     /* 注册通用命令 */
     shell_register("help", cmd_help, "show help");

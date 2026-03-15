@@ -33,6 +33,7 @@ tbsh/
 | `SHELL_TAB_COMPLETION_ENABLE` | 1      | Tab 补全       |
 | `SHELL_HISTORY_ENABLE`        | 1      | 历史记录         |
 | `SHELL_HISTORY_SIZE`          | 8      | 历史记录条数       |
+| `SHELL_CURSOR_EDIT_ENABLE`    | 1      | 左右光标编辑       |
 
 ## 内置命令
 
@@ -178,6 +179,7 @@ int main(void) {
 |:------------|:------------|
 | `Tab`       | 命令补全 / 显示候选 |
 | `↑` / `↓`   | 浏览历史记录      |
+| `<-`/`->`   | 左右光标编辑      |
 | `Ctrl+C`    | 取消当前输入      |
 | `Ctrl+U`    | 清除整行        |
 | `Backspace` | 删除字符        |
@@ -188,6 +190,7 @@ MIT License
 
 ## 版本历史
 
+- **v0.1.3** - 添加左右光标编辑
 - **v0.1.2** - 添加历史记录
 - **v0.1.1** - 添加 Tab 补全
 - **v0.1.0** - 初始版本

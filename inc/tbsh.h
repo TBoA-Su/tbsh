@@ -72,6 +72,10 @@ extern "C" {
 #define SHELL_HISTORY_ENABLE 1 /* 历史记录 */
 #endif
 
+#ifndef SHELL_CURSOR_EDIT_ENABLE
+#define SHELL_CURSOR_EDIT_ENABLE 1  /* 左右光标编辑 */
+#endif
+
 /* 历史记录大小 */
 #if SHELL_HISTORY_ENABLE
 #ifndef SHELL_HISTORY_SIZE
