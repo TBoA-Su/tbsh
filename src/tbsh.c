@@ -476,7 +476,7 @@ static void shell_history_reset_browse(void) {
 #endif /* SHELL_HISTORY_ENABLE */
 
 /* ============================================================
- * 键盘输入处理
+ * 光标编辑功能
  * ============================================================ */
 #if SHELL_CURSOR_EDIT_ENABLE
 
@@ -488,7 +488,6 @@ static void shell_cursor_reset(void) {
 }
 
 #endif
-
 
 /* ============================================================
  * 键盘输入处理

@@ -7,6 +7,7 @@
 - **零依赖**：纯 C 实现，不依赖操作系统或标准库
 - **极小体积**：代码 < 5KB，RAM < 1KB
 - **跨平台**：支持 Linux、STM32、ESP32、AVR 等单片机
+- **交互友好**：Tab 命令补全、历史记录、方向键浏览
 
 ## 目录结构
 
@@ -149,9 +150,6 @@ char shell_getchar(void) {
     rx_tail = (rx_tail + 1) % RX_BUF_SIZE;
     return (char)c;
 }
-
-/* 可选：简单的 Flash 文件系统（如 LittleFS） */
-/* 或直接使用固定地址存储 */
 
 int main(void) {
     /* 初始化硬件 */
